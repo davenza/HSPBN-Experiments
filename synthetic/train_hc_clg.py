@@ -2,7 +2,7 @@ import os
 import glob
 import pandas as pd
 import util
-import generate_dataset_spbn
+import generate_dataset_hspbn
 import pybnesian as pbn
 import pathlib
 import math
@@ -10,12 +10,12 @@ import multiprocessing as mp
 
 patience = util.PATIENCE
 
-def run_hc_spbn(idx_dataset, i):
+def run_hc_hspbn(idx_dataset, i):
     hc = pbn.GreedyHillClimbing()
     pool = pbn.OperatorPool([pbn.ArcOperatorSet(), pbn.ChangeNodeTypeSet()])
     
     df = pd.read_csv('data/synthetic_' + str(idx_dataset).zfill(3) + '_' + str(i) + '.csv')
-    df = generate_dataset_spbn.preprocess_dataset(df)
+    df = generate_dataset_hspbn.preprocess_dataset(df)
     
     bic = pbn.BIC(df)
     result_folder = 'models/' + str(idx_dataset).zfill(3) + '/' + str(i) + '/HillClimbing/CLG/BIC'
@@ -58,5 +58,5 @@ for i in util.INSTANCES:
 
         num_processes = min(10, util.NUM_SIMULATIONS - idx_dataset*10)
         with mp.Pool(processes=num_processes) as p:
-            p.starmap(run_hc_spbn, [(10*idx_dataset + ii, i) for ii in range(num_processes)]
+            p.starmap(run_hc_hspbn, [(10*idx_dataset + ii, i) for ii in range(num_processes)]
                         )

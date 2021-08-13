@@ -6,7 +6,7 @@ import glob
 import pybnesian as pbn
 from pybnesian import load
 import util
-from generate_dataset_spbn import slogl_model, preprocess_dataset
+from generate_dataset_hspbn import slogl_model, preprocess_dataset
 
 true_model = load('true_model.pickle')
 
@@ -43,7 +43,6 @@ class PluginEstimator(pbn.BandwidthSelector):
             else:
                 raise rerror
 
-
 def compare_models(true_model, num_instances, bandwidth_selection="normal_reference"):
     ll = np.empty((util.NUM_SIMULATIONS,))
     shd = np.empty((util.NUM_SIMULATIONS,))
@@ -57,7 +56,7 @@ def compare_models(true_model, num_instances, bandwidth_selection="normal_refere
             test_df = pd.read_csv('data/synthetic_' + str(i).zfill(3) + '_test.csv')
             test_df = preprocess_dataset(test_df)
 
-            result_folder = 'models/' +  str(i).zfill(3) + '/' + str(num_instances) + '/HillClimbing/SPBN/' + str(p)
+            result_folder = 'models/' +  str(i).zfill(3) + '/' + str(num_instances) + '/HillClimbing/HSPBN_HCKDE/' + str(p)
             pathlib.Path(result_folder).mkdir(parents=True, exist_ok=True)
 
             all_models = sorted(glob.glob(result_folder + '/*.pickle'))
@@ -87,11 +86,10 @@ def compare_models(true_model, num_instances, bandwidth_selection="normal_refere
             hamming_type[i] = util.hamming_type(final_model, true_model)
 
         print("Loglik, ValidationScore p " + str(p) + ": " + str(ll.mean()))
-        print("Hamming, ValidationScore p " + str(p) + ": " + str(hamming.mean()))
         print("SHD, ValidationScore p " + str(p) + ": " + str(shd.mean()))
+        print("Hamming, ValidationScore p " + str(p) + ": " + str(hamming.mean()))
         print("Hamming type, ValidationScore p " + str(p) + ": " + str(hamming_type.mean()))
         print()
-
 
 if __name__ == '__main__':
     ll = np.empty((util.NUM_SIMULATIONS,))

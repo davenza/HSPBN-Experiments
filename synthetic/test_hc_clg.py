@@ -5,7 +5,7 @@ import pathlib
 import glob
 from pybnesian import load
 import util
-from generate_dataset_spbn import slogl_model, preprocess_dataset
+from generate_dataset_hspbn import slogl_model, preprocess_dataset
 
 true_model = load('true_model.pickle')
 
