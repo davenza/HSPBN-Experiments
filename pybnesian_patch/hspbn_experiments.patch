@@ -1,0 +1,219 @@
+diff --git a/pybnesian/learning/operators/operators.cpp b/pybnesian/learning/operators/operators.cpp
+index 27662af..b087a6f 100644
+--- a/pybnesian/learning/operators/operators.cpp
++++ b/pybnesian/learning/operators/operators.cpp
+@@ -74,6 +74,11 @@ double cache_score_operation(const BayesianNetworkBase& model,
+     if (model.has_arc(source, target)) {
+         util::swap_remove_v(parents_target, source);
+         auto d = score.local_score(model, target, parents_target) - target_cached_score;
++
++        if (std::isnan(d)) {
++            d = -std::numeric_limits<double>::infinity();
++        }
++
+         parents_target.push_back(source);
+         return d;
+     } else if (model.has_arc(target, source)) {
+@@ -83,11 +88,21 @@ double cache_score_operation(const BayesianNetworkBase& model,
+         parents_target.push_back(source);
+         double d = score.local_score(model, source, new_parents_source) +
+                    score.local_score(model, target, parents_target) - source_cached_score - target_cached_score;
++
++        if (std::isnan(d)) {
++            d = -std::numeric_limits<double>::infinity();
++        }
++
+         parents_target.pop_back();
+         return d;
+     } else {
+         parents_target.push_back(source);
+         double d = score.local_score(model, target, parents_target) - target_cached_score;
++
++        if (std::isnan(d)) {
++            d = -std::numeric_limits<double>::infinity();
++        }
++
+         parents_target.pop_back();
+         return d;
+     }
+@@ -301,19 +316,30 @@ void ArcOperatorSet::update_incoming_arcs_scores(const BayesianNetworkBase& mode
+             if (model.has_arc(source_node, target_node)) {
+                 // Update remove arc: source_node -> target_node
+                 util::swap_remove_v(parents, source_node);
++
+                 double d = score.local_score(model, target_node, parents) -
+                            this->m_local_cache->local_score(model, target_node);
++
+                 parents.push_back(source_node);
+                 delta(source_collapsed, target_collapsed) = d;
+ 
++                if (std::isnan(delta(source_collapsed, target_collapsed))) {
++                    delta(source_collapsed, target_collapsed) = -std::numeric_limits<double>::infinity();
++                }
++
+                 // Update flip arc: source_node -> target_node
+                 if (valid_op(target_collapsed, source_collapsed) &&
+                     bn_type->can_have_arc(model, target_node, source_node)) {
+                     auto parents_source = model.parents(source_node);
+                     parents_source.push_back(target_node);
++
+                     delta(target_collapsed, source_collapsed) = d +
+                                                                 score.local_score(model, source_node, parents_source) -
+                                                                 this->m_local_cache->local_score(model, source_node);
++
++                    if (std::isnan(delta(target_collapsed, source_collapsed))) {
++                        delta(target_collapsed, source_collapsed) = -std::numeric_limits<double>::infinity();
++                    }
+                 }
+             } else if (model.has_arc(target_node, source_node) &&
+                        bn_type->can_have_arc(model, source_node, target_node)) {
+@@ -322,19 +348,32 @@ void ArcOperatorSet::update_incoming_arcs_scores(const BayesianNetworkBase& mode
+                 util::swap_remove_v(parents_source, target_node);
+ 
+                 parents.push_back(source_node);
++
+                 double d = score.local_score(model, source_node, parents_source) +
+                            score.local_score(model, target_node, parents) -
+                            this->m_local_cache->local_score(model, source_node) -
+                            this->m_local_cache->local_score(model, target_node);
++
+                 parents.pop_back();
+                 delta(source_collapsed, target_collapsed) = d;
++
++                if (std::isnan(delta(source_collapsed, target_collapsed))) {
++                    delta(source_collapsed, target_collapsed) = -std::numeric_limits<double>::infinity();
++                }
++
+             } else if (bn_type->can_have_arc(model, source_node, target_node)) {
+                 // Update add arc: source_node -> target_node
+                 parents.push_back(source_node);
++
+                 double d = score.local_score(model, target_node, parents) -
+                            this->m_local_cache->local_score(model, target_node);
++
+                 parents.pop_back();
+                 delta(source_collapsed, target_collapsed) = d;
++
++                if (std::isnan(delta(source_collapsed, target_collapsed))) {
++                    delta(source_collapsed, target_collapsed) = -std::numeric_limits<double>::infinity();
++                }
+             }
+         }
+     }
+@@ -476,6 +515,11 @@ void ChangeNodeTypeSet::cache_scores(const BayesianNetworkBase& model, const Sco
+                     auto parents = model.parents(collapsed_name);
+                     delta.back()(k) =
+                         score.local_score(model, alt_node_types[k], collapsed_name, parents) - current_score;
++
++                    if (std::isnan(delta.back()(k))) {
++                        delta.back()(k) = -std::numeric_limits<double>::infinity();
++                    }
++
+                 } else {
+                     delta.back()(k) = std::numeric_limits<double>::lowest();
+                 }
+@@ -585,6 +629,10 @@ void ChangeNodeTypeSet::update_scores(const BayesianNetworkBase& model,
+             if (bn_type->compatible_node_type(model, n, alt_node_types[k]) && not_blacklisted) {
+                 auto parents = model.parents(n);
+                 delta[collapsed_index](k) = score.local_score(model, alt_node_types[k], n, parents) - current_score;
++
++                if (std::isnan(delta[collapsed_index](k))) {
++                    delta[collapsed_index](k) = -std::numeric_limits<double>::infinity();
++                }
+             } else {
+                 delta[collapsed_index](k) = std::numeric_limits<double>::lowest();
+             }
+diff --git a/pybnesian/learning/operators/operators.hpp b/pybnesian/learning/operators/operators.hpp
+index 74d64e9..75a910e 100644
+--- a/pybnesian/learning/operators/operators.hpp
++++ b/pybnesian/learning/operators/operators.hpp
+@@ -436,7 +436,7 @@ std::shared_ptr<Operator> ArcOperatorSet::find_max_indegree(const BayesianNetwor
+     auto delta_ptr = delta.data();
+ 
+     // TODO: Not checking sorted_idx empty
+-    std::sort(
++    std::stable_sort(
+         sorted_idx.begin(), sorted_idx.end(), [&delta_ptr](auto i1, auto i2) { return delta_ptr[i1] > delta_ptr[i2]; });
+ 
+     for (auto it = sorted_idx.begin(), end = sorted_idx.end(); it != end; ++it) {
+@@ -474,7 +474,7 @@ std::shared_ptr<Operator> ArcOperatorSet::find_max_indegree(const ConditionalBay
+     auto delta_ptr = delta.data();
+ 
+     // TODO: Not checking sorted_idx empty
+-    std::sort(
++    std::stable_sort(
+         sorted_idx.begin(), sorted_idx.end(), [&delta_ptr](auto i1, auto i2) { return delta_ptr[i1] > delta_ptr[i2]; });
+ 
+     for (auto it = sorted_idx.begin(), end = sorted_idx.end(); it != end; ++it) {
+@@ -528,7 +528,7 @@ std::shared_ptr<Operator> ArcOperatorSet::find_max_indegree(const BayesianNetwor
+     auto delta_ptr = delta.data();
+ 
+     // TODO: Not checking sorted_idx empty
+-    std::sort(
++    std::stable_sort(
+         sorted_idx.begin(), sorted_idx.end(), [&delta_ptr](auto i1, auto i2) { return delta_ptr[i1] > delta_ptr[i2]; });
+ 
+     for (auto it = sorted_idx.begin(), end = sorted_idx.end(); it != end; ++it) {
+@@ -573,7 +573,7 @@ std::shared_ptr<Operator> ArcOperatorSet::find_max_indegree(const ConditionalBay
+     auto delta_ptr = delta.data();
+ 
+     // TODO: Not checking sorted_idx empty
+-    std::sort(
++    std::stable_sort(
+         sorted_idx.begin(), sorted_idx.end(), [&delta_ptr](auto i1, auto i2) { return delta_ptr[i1] > delta_ptr[i2]; });
+ 
+     for (auto it = sorted_idx.begin(), end = sorted_idx.end(); it != end; ++it) {
+diff --git a/pybnesian/learning/parameters/mle_DiscreteFactor.cpp b/pybnesian/learning/parameters/mle_DiscreteFactor.cpp
+index 6b62c8f..b67c7fb 100644
+--- a/pybnesian/learning/parameters/mle_DiscreteFactor.cpp
++++ b/pybnesian/learning/parameters/mle_DiscreteFactor.cpp
+@@ -16,6 +16,7 @@ typename DiscreteFactor::ParamsClass _fit(const DataFrame& df,
+ 
+     VectorXd logprob(joint_counts.rows());
+ 
++    double unif_prior = 1. / static_cast<double>(cardinality(0) * parent_configurations);
+     for (auto k = 0; k < parent_configurations; ++k) {
+         auto offset = k * cardinality(0);
+ 
+@@ -30,9 +31,10 @@ typename DiscreteFactor::ParamsClass _fit(const DataFrame& df,
+                 logprob(offset + i) = loguniform;
+             }
+         } else {
+-            double logsum_configuration = std::log(static_cast<double>(sum_configuration));
++            double logsum_configuration = std::log(static_cast<double>(sum_configuration) + cardinality(0)*unif_prior);
+             for (auto i = 0; i < cardinality(0); ++i) {
+-                logprob(offset + i) = std::log(static_cast<double>(joint_counts(offset + i))) - logsum_configuration;
++                logprob(offset + i) =
++                    std::log(static_cast<double>(joint_counts(offset + i)) + unif_prior) - logsum_configuration;
+             }
+         }
+     }
+diff --git a/pybnesian/learning/scores/cv_likelihood.cpp b/pybnesian/learning/scores/cv_likelihood.cpp
+index 19344f6..0a3035b 100644
+--- a/pybnesian/learning/scores/cv_likelihood.cpp
++++ b/pybnesian/learning/scores/cv_likelihood.cpp
+@@ -19,6 +19,7 @@ double CVLikelihood::local_score(const BayesianNetworkBase& model,
+     for (auto [train_df, test_df] : m_cv.loc(variable, evidence)) {
+         cpd->fit(train_df);
+         loglik += cpd->slogl(test_df);
++        if (std::isnan(loglik)) return -std::numeric_limits<double>::infinity();
+     }
+ 
+     return loglik;
+diff --git a/pybnesian/learning/scores/holdout_likelihood.cpp b/pybnesian/learning/scores/holdout_likelihood.cpp
+index efef9a6..1a5d4b5 100644
+--- a/pybnesian/learning/scores/holdout_likelihood.cpp
++++ b/pybnesian/learning/scores/holdout_likelihood.cpp
+@@ -19,7 +19,10 @@ double HoldoutLikelihood::local_score(const BayesianNetworkBase& model,
+ 
+     auto cpd = variable_type->new_factor(model, variable, evidence, args, kwargs);
+     cpd->fit(training_data());
+-    return cpd->slogl(test_data());
++
++    auto slogl = cpd->slogl(test_data());
++    if (std::isnan(slogl)) return -std::numeric_limits<double>::infinity();
++    return slogl;
+ }
+ 
+ }  // namespace learning::scores
+\ No newline at end of file
