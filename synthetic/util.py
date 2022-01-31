@@ -1,29 +1,10 @@
-import numpy as np
+import pyarrow as pa
 
-NUM_SIMULATIONS = 50
+NUM_SIMULATIONS = 100
+PARALLEL_THREADS = 10
 INSTANCES = [200, 2000, 10000]
 SEED = 0
-PATIENCE = [0, 5]
-
-def sample_mixture(prior_prob, means, variances, evidence, beta, n_instances, seed=0):
-    np.random.seed(seed)
-    p = np.asarray(prior_prob)
-    c = np.cumsum(p)
-    m = np.asarray(means)
-    v = np.asarray(variances)
-
-    s = np.random.uniform(size=n_instances)
-
-    digitize = np.digitize(s, c)
-
-    means = np.full((n_instances,), beta[digitize, 0])
-
-    for i in range(len(evidence)):
-        means += beta[digitize, i+1] * evidence[i]
-    
-    res = np.random.normal(means, np.sqrt(v[digitize]))
-
-    return res
+PATIENCE = [0, 15]
 
 def shd(estimated, true):
     assert set(estimated.nodes()) == set(true.nodes())

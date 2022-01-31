@@ -19,14 +19,15 @@ def result_string(df_name, df):
     (bic_result, clg_vl_result, hspbn_vl_result, hspbn_hckde_vl_result) =\
         util.common_instance_results(bic_result, clg_vl_result, hspbn_vl_result, hspbn_hckde_vl_result)
 
-    return df_name + ',' + str(bic_result.sum()) +\
+    return df_name + ',' + ','.join([str(ll.sum()) for ll in bic_result]) +\
                 ',' + ','.join([str(ll.sum()) for ll in clg_vl_result]) +\
                 ',' + ','.join([str(ll.sum()) for ll in hspbn_vl_result]) +\
                 ',' + ','.join([str(ll.sum()) for ll in hspbn_hckde_vl_result])
 
 
 def save_summary_results():
-    string_file = "Dataset,CLG_BIC," +\
+    string_file = "Dataset," +\
+                ','.join(["CLG_BIC_" + str(p) for p in util.PATIENCE]) + ',' +\
                 ','.join(["CLG_" + str(p) for p in util.PATIENCE]) + ',' +\
                 ','.join(["HSPBN_" + str(p) for p in util.PATIENCE]) + ',' +\
                 ','.join(["HSPBN_HCKDE_" + str(p) for p in util.PATIENCE]) + '\n'
@@ -98,13 +99,18 @@ def plot_cd_diagrams(rename_dict):
 
 if __name__ == '__main__':
     rename_dict = {
-        'CLG_BIC': r'CLGBN-BIC',
-        'CLG_0': r'CLGBN $\lambda=0$',
-        'CLG_5': r'CLGBN $\lambda=5$',
+        'CLG_BIC_0': r'CLGBN-BIC $\lambda=0$',
+        'CLG_BIC_5': r'CLGBN-BIC $\lambda=5$',
+        'CLG_BIC_15': r'CLGBN-BIC $\lambda=15$',
+        'CLG_0': r'CLGBN-VL $\lambda=0$',
+        'CLG_5': r'CLGBN-VL $\lambda=5$',
+        'CLG_15': r'CLGBN-VL $\lambda=15$',
         'HSPBN_0': r'HSPBN-CLG $\lambda=0$',
         'HSPBN_5': r'HSPBN-CLG $\lambda=5$',
+        'HSPBN_15': r'HSPBN-CLG $\lambda=15$',
         'HSPBN_HCKDE_0': r'HSPBN-HCKDE $\lambda=0$',
         'HSPBN_HCKDE_5': r'HSPBN-HCKDE $\lambda=5$',
+        'HSPBN_HCKDE_15': r'HSPBN-HCKDE $\lambda=15$',
     }
     
     save_summary_results()

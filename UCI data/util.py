@@ -9,7 +9,7 @@ import glob
 SEED = 0
 EVALUATION_FOLDS = 10
 PARALLEL_THREADS = 10
-PATIENCE = [0, 5]
+PATIENCE = [0, 5, 15]
 
 import rpy2
 from rpy2.robjects.packages import importr
@@ -186,8 +186,8 @@ class ValidatedLikelihoodCheckInvalid(pbn.ValidatedScore):
         return self.cv.data()
 
 
-def train_hc_clg_bic(df_name, train_df, idx_fold):
-    fold_folder = 'models/' + df_name + '/HillClimbing/CLG/BIC/' + str(idx_fold)
+def train_hc_clg_bic(df_name, train_df, patience, idx_fold):
+    fold_folder = 'models/' + df_name + '/HillClimbing/CLG/BIC_' + str(patience) + '/' + str(idx_fold)
     pathlib.Path(fold_folder).mkdir(parents=True, exist_ok=True)
 
     if os.path.exists(fold_folder + '/end.lock'):
@@ -200,7 +200,7 @@ def train_hc_clg_bic(df_name, train_df, idx_fold):
     cb_save = pbn.SaveModel(fold_folder)
     start_model = pbn.CLGNetwork(list(train_df.columns.values))
 
-    bn = hc.estimate(arc_set, bic, start_model, callback=cb_save)
+    bn = hc.estimate(arc_set, bic, start_model, patience=patience, callback=cb_save)
     iters = sorted(glob.glob(fold_folder + '/*.pickle'))
     last_file = os.path.basename(iters[-1])
     number = int(os.path.splitext(last_file)[0])
@@ -290,12 +290,13 @@ def train_hc_models(df_name, df):
     
     fold_indices = list(KFold(EVALUATION_FOLDS, shuffle=True, random_state=SEED).split(df))
 
-    for ch in range(chunks):
-        num_threads = int(np.minimum(PARALLEL_THREADS, EVALUATION_FOLDS -  PARALLEL_THREADS*ch))
-        with mp.Pool(processes=num_threads) as p:
-            p.starmap(train_hc_clg_bic, [(df_name, df.iloc[fold_indices[idx_fold][0],:], idx_fold)
-                                            for idx_fold in range(ch*PARALLEL_THREADS, ch*PARALLEL_THREADS + num_threads)]
-                )
+    for patience in PATIENCE:
+        for ch in range(chunks):
+            num_threads = int(np.minimum(PARALLEL_THREADS, EVALUATION_FOLDS -  PARALLEL_THREADS*ch))
+            with mp.Pool(processes=num_threads) as p:
+                p.starmap(train_hc_clg_bic, [(df_name, df.iloc[fold_indices[idx_fold][0],:], patience, idx_fold)
+                                                for idx_fold in range(ch*PARALLEL_THREADS, ch*PARALLEL_THREADS + num_threads)]
+                    )
 
     for patience in PATIENCE:
         for ch in range(chunks):
@@ -324,8 +325,8 @@ def train_hc_models(df_name, df):
                     for idx_fold in range(ch*PARALLEL_THREADS, ch*PARALLEL_THREADS + num_threads)]
                 )
 
-def test_hc_clg_bic(df_name, train_df, test_df, idx_fold):
-    fold_folder = 'models/' + df_name + '/HillClimbing/CLG/BIC/' + str(idx_fold)
+def test_hc_clg_bic(df_name, train_df, test_df, patience, idx_fold):
+    fold_folder = 'models/' + df_name + '/HillClimbing/CLG/BIC_' + str(patience) + '/' + str(idx_fold)
     all_models = sorted(glob.glob(fold_folder + '/*.pickle'))
     final_model = pbn.load(all_models[-1])
 
@@ -377,17 +378,19 @@ def test_hc_models(df_name, df):
     fold_indices = list(KFold(EVALUATION_FOLDS, shuffle=True, random_state=SEED).split(df))
 
     bic_result = []
-    for ch in range(chunks):
-        num_threads = int(np.minimum(PARALLEL_THREADS, EVALUATION_FOLDS -  PARALLEL_THREADS*ch))
-        with mp.Pool(processes=num_threads) as p:
-            tmp_result = p.starmap(test_hc_clg_bic, 
-                                  [(df_name, df.iloc[fold_indices[idx_fold][0],:], df.iloc[fold_indices[idx_fold][1],:], idx_fold)
-                                    for idx_fold in range(ch*PARALLEL_THREADS, ch*PARALLEL_THREADS + num_threads)]
-                )
+    for patience in PATIENCE:
+        result = []
+        for ch in range(chunks):
+            num_threads = int(np.minimum(PARALLEL_THREADS, EVALUATION_FOLDS -  PARALLEL_THREADS*ch))
+            with mp.Pool(processes=num_threads) as p:
+                tmp_result = p.starmap(test_hc_clg_bic,
+                                    [(df_name, df.iloc[fold_indices[idx_fold][0],:], df.iloc[fold_indices[idx_fold][1],:], patience, idx_fold)
+                                        for idx_fold in range(ch*PARALLEL_THREADS, ch*PARALLEL_THREADS + num_threads)]
+                    )
 
-        bic_result.extend(tmp_result)
+            result.extend(tmp_result)
 
-    bic_result = unfold_predictions(bic_result)
+        bic_result.append(unfold_predictions(result))
 
     clg_vl_result = []
     for patience in PATIENCE:
@@ -437,7 +440,11 @@ def test_hc_models(df_name, df):
     return (bic_result, clg_vl_result, hspbn_vl_result, hspbn_hckde_vl_result)
 
 def common_instance_results(bic_result, clg_vl_result, hspbn_vl_result, hspbn_hckde_vl_result):
-    is_invalid_instance = np.logical_or(np.isnan(bic_result), np.isinf(bic_result))
+    is_invalid_instance = np.full_like(bic_result[0], False, dtype=bool)
+
+    for bic in bic_result:
+        local_invalid = np.logical_or(np.isnan(bic), np.isinf(bic))
+        is_invalid_instance = np.logical_or(is_invalid_instance, local_invalid)
 
     for clg_vl in clg_vl_result:
         local_invalid = np.logical_or(np.isnan(clg_vl), np.isinf(clg_vl))
@@ -451,13 +458,14 @@ def common_instance_results(bic_result, clg_vl_result, hspbn_vl_result, hspbn_hc
         local_invalid = np.logical_or(np.isnan(hspbn_hckde_vl), np.isinf(hspbn_hckde_vl))
         is_invalid_instance = np.logical_or(is_invalid_instance, local_invalid)
 
-    return (bic_result[~is_invalid_instance],
+    return ([ll[~is_invalid_instance] for ll in bic_result],
             [ll[~is_invalid_instance] for ll in clg_vl_result],
             [ll[~is_invalid_instance] for ll in hspbn_vl_result],
             [ll[~is_invalid_instance] for ll in hspbn_hckde_vl_result])
 
 def print_logl_results(bic_result, clg_vl_result, hspbn_vl_result, hspbn_hckde_vl_result):
-    print("CLG-BIC logl: " + str(bic_result.sum()))
+    for p, r in zip(PATIENCE, bic_result):
+        print("CLG BIC p = " + str(p) + ", logl: " + str(r.sum()))
 
     for p, r in zip(PATIENCE, clg_vl_result):
         print("CLG ValidationLiklihood p = " + str(p) + ", logl: " + str(r.sum()))

@@ -6,9 +6,9 @@ import glob
 import pybnesian as pbn
 from pybnesian import load
 import util
-from generate_dataset_hspbn import slogl_model, preprocess_dataset
-
-true_model = load('true_model.pickle')
+from generate_new_bns import FixedDiscreteFactorType, FixedCLGType, NormalMixtureType,\
+                        FixedDiscreteFactor, NormalMixtureCPD, FixedCLG, ProbabilisticModel
+from generate_dataset import preprocess_dataset
 
 import rpy2
 from rpy2.robjects.packages import importr
@@ -43,14 +43,27 @@ class PluginEstimator(pbn.BandwidthSelector):
             else:
                 raise rerror
 
-def compare_models(true_model, num_instances, bandwidth_selection="normal_reference"):
+def compare_models(num_instances, bandwidth_selection="normal_reference"):
+    truth_ll = np.empty((util.NUM_SIMULATIONS,))
+
     ll = np.empty((util.NUM_SIMULATIONS,))
     shd = np.empty((util.NUM_SIMULATIONS,))
     hamming = np.empty((util.NUM_SIMULATIONS,))
     hamming_type = np.empty((util.NUM_SIMULATIONS,))
 
+    for i in range(util.NUM_SIMULATIONS):
+        test_df = pd.read_csv('data/synthetic_' + str(i).zfill(3) + '_test.csv')
+        test_df = preprocess_dataset(test_df)
+
+        true_model = ProbabilisticModel.load('ground_truth_models/model_' + str(i) + '.pickle')
+        truth_ll[i] = true_model.ground_truth_bn.slogl(test_df)
+
+    print("True model loglik: " + str(truth_ll.mean()))
+
     for p in util.PATIENCE:
         for i in range(util.NUM_SIMULATIONS):
+            true_model = ProbabilisticModel.load('ground_truth_models/model_' + str(i) + '.pickle')
+
             train_df = pd.read_csv('data/synthetic_' + str(i).zfill(3) + "_" + str(num_instances) + '.csv')
             train_df = preprocess_dataset(train_df)
             test_df = pd.read_csv('data/synthetic_' + str(i).zfill(3) + '_test.csv')
@@ -81,27 +94,20 @@ def compare_models(true_model, num_instances, bandwidth_selection="normal_refere
                                  "\"normal_reference\", \"ucv\" and \"plugin\".")
 
             ll[i] = final_model.slogl(test_df)
-            shd[i] = util.shd(final_model, true_model)
-            hamming[i] = util.hamming(final_model, true_model)
-            hamming_type[i] = util.hamming_type(final_model, true_model)
+            shd[i] = util.shd(final_model, true_model.expected_bn)
+            hamming[i] = util.hamming(final_model, true_model.expected_bn)
+            hamming_type[i] = util.hamming_type(final_model, true_model.expected_bn)
 
         print("Loglik, ValidationScore p " + str(p) + ": " + str(ll.mean()))
-        print("SHD, ValidationScore p " + str(p) + ": " + str(shd.mean()))
         print("Hamming, ValidationScore p " + str(p) + ": " + str(hamming.mean()))
+        print("SHD, ValidationScore p " + str(p) + ": " + str(shd.mean()))
         print("Hamming type, ValidationScore p " + str(p) + ": " + str(hamming_type.mean()))
         print()
 
 if __name__ == '__main__':
-    ll = np.empty((util.NUM_SIMULATIONS,))
-    for i in range(util.NUM_SIMULATIONS):
-        test_df = pd.read_csv('data/synthetic_' + str(i).zfill(3) + '_test.csv')
-        ll[i] = slogl_model(test_df)
-
-    print("True model loglik: " + str(ll.mean()))
-    print()
 
     for i in util.INSTANCES:
         print(str(i) + " instances")
         print("=======================")
-        compare_models(true_model, i)
+        compare_models(i, bandwidth_selection="normal_reference")
 
